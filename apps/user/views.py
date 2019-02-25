@@ -3,7 +3,7 @@ import re
 from django.core.mail import send_mail
 from django.views.generic.base import View
 
-from .models import User
+from .models import User, Address
 from django.core.urlresolvers import reverse
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from itsdangerous import SignatureExpired
@@ -150,7 +150,11 @@ class LogoutView(View):
 class UserView(LoginRequiredMixin, View):
     # page 是用告诉前端页面显示的是哪个页面.
     def get(self, request):
-        return render(request, 'user_center_info.html', {'page': 'user'})
+        # 获取用户信息
+        user = request.user
+        # 根据用户获取地址
+        address = Address.objects.get_default_address(user)
+        return render(request, 'user_center_info.html', {'page': 'user', 'address': address})
 
 
 # 用户中心订单视图类
@@ -162,4 +166,34 @@ class UserOrderView(LoginRequiredMixin, View):
 # 用户中心用户地址视图类
 class UserAddressView(LoginRequiredMixin, View):
     def get(self, request):
-        return render(request, 'user_center_site.html', {'page': 'address'})
+        '''显示'''
+        user = request.user
+        address = Address.objects.get_default_address(user)
+        return render(request, 'user_center_site.html', {'page': 'address', 'address': address})
+
+    def post(self, request):
+        '''地址的添加'''
+        # 1.获取提交的数据
+        receiver = request.POST.get('receiver')
+        addr = request.POST.get('addr')
+        zip_code = request.POST.get('zip_code')
+        phone = request.POST.get('phone')
+
+        # 2.校验数据
+        if not all([receiver, addr, phone]):
+            return render(request, 'user_center_site.html', {'errmsg': '数据不完整'})
+        if not re.match(r'^1[3|4|5|7|8][0-9]{9}$', phone):
+            return render(request, 'user_center_site.html', {'errmsg': '手机格式不正确'})
+
+        # 3.业务处理:地址添加
+        # 如果用户已存在默认的收货地址,添加的地址不作为默认的收货地址,否则作为默认的收货地址
+        # 获取登录用户对应的User对象
+        user = request.user
+        address = Address.objects.get_default_address(user)
+        is_default = False if address else True
+
+        # 4.添加地址到数据库
+        Address.objects.create(user=user, receiver=receiver, addr=addr, zip_code=zip_code, phone=phone,
+                               is_default=is_default)
+        # 返回应答,刷新地址页面
+        return redirect(reverse('user:address'))
